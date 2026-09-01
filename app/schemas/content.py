@@ -2,6 +2,8 @@ import uuid
 
 from pydantic import BaseModel, ConfigDict
 
+from app.models.content import TicketCategory
+
 
 class TopicOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -16,6 +18,7 @@ class TicketOut(BaseModel):
 
     id: uuid.UUID
     number: int
+    category: TicketCategory
 
 
 class AnswerOut(BaseModel):
@@ -35,7 +38,7 @@ class QuestionOut(BaseModel):
     id: uuid.UUID
     order_index: int
     text: str
-    image_url: str | None
+    image_url: str | None  # относительный путь на наш эндпоинт /questions/{id}/image, не внешняя ссылка
     explanation: str | None
     answers: list[AnswerOut]
 
@@ -43,3 +46,4 @@ class QuestionOut(BaseModel):
 class TopicsListResponse(BaseModel):
     topics: list[TopicOut]
     tickets: list[TicketOut]
+

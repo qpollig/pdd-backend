@@ -1,11 +1,17 @@
+import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+
+class TicketCategory(str, enum.Enum):
+    a_b = "A_B"  # легковые авто, мотоциклы
+    c_d = "C_D"  # грузовые авто, автобусы
 
 
 class Topic(Base):
@@ -21,14 +27,21 @@ class Topic(Base):
 
 
 class Ticket(Base):
-    """Один из 40 официальных экзаменационных билетов."""
+    """Один из официальных экзаменационных билетов конкретной категории прав."""
 
     __tablename__ = "tickets"
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    number: Mapped[int] = mapped_column(Integer, nullable=False, unique=True)  # 1..40
+    number: Mapped[int] = mapped_column(Integer, nullable=False)  # 1..40 (не уникально глобально!)
+    category: Mapped[TicketCategory] = mapped_column(Enum(TicketCategory, name="ticket_category"), nullable=False)
 
     questions: Mapped[list["Question"]] = relationship(back_populates="ticket", order_by="Question.order_index")
+
+    __table_args__ = (
+        # Билет №1 категории A_B и билет №1 категории C_D — это РАЗНЫЕ наборы вопросов,
+        # поэтому уникальность — по паре (номер, категория), а не по одному номеру.
+        UniqueConstraint("number", "category", name="uq_tickets_number_category"),
+    )
 
 
 class Question(Base):
@@ -45,7 +58,11 @@ class Question(Base):
 
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     text: Mapped[str] = mapped_column(Text, nullable=False)
-    image_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+
+    # Изображение хранится напрямую в БД (bytea), а не ссылкой на внешний ресурс.
+    image_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    image_content_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # напр. "image/jpeg"
+
     explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     ticket: Mapped["Ticket | None"] = relationship(back_populates="questions")

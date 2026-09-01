@@ -21,13 +21,16 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.execute("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"")
 
-    oauth_provider_enum = pg.ENUM("yandex", "vk", name="oauth_provider")
-    session_mode_enum = pg.ENUM("theory", "gibdd_exam", "errors", name="session_mode")
-    session_status_enum = pg.ENUM("in_progress", "finished", name="session_status")
+    # create_type=False обязателен: без него SQLAlchemy попытается создать тип ЕЩЁ РАЗ
+    # автоматически в момент op.create_table(...), что даст DuplicateObjectError,
+    # т.к. мы уже создаём типы вручную несколькими строками ниже.
+    oauth_provider_enum = pg.ENUM("yandex", "vk", name="oauth_provider", create_type=False)
+    session_mode_enum = pg.ENUM("theory", "gibdd_exam", "errors", name="session_mode", create_type=False)
+    session_status_enum = pg.ENUM("in_progress", "finished", name="session_status", create_type=False)
     subscription_status_enum = pg.ENUM(
-        "trialing", "active", "cancelled", "past_due", name="subscription_status"
+        "trialing", "active", "cancelled", "past_due", name="subscription_status", create_type=False
     )
-    payment_status_enum = pg.ENUM("pending", "succeeded", "failed", name="payment_status")
+    payment_status_enum = pg.ENUM("pending", "succeeded", "failed", name="payment_status", create_type=False)
 
     bind = op.get_bind()
     oauth_provider_enum.create(bind, checkfirst=True)
