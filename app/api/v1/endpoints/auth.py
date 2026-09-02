@@ -5,14 +5,25 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import create_access_token
 from app.models.user import OAuthProvider
-from app.schemas.user import OAuthLoginRequest, TokenResponse, UserOut
+from app.schemas.common import ErrorDetail
+from app.schemas.user import OAuthLoginRequest, TokenResponse
 from app.services import user_repo
 from app.services.oauth import OAuthError, exchange_code_and_fetch_profile
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/oauth/{provider}", response_model=TokenResponse)
+@router.post(
+    "/oauth/{provider}",
+    response_model=TokenResponse,
+    responses={
+        400: {
+            "model": ErrorDetail,
+            "description": "OAUTH_EXCHANGE_FAILED — провайдер отклонил code (истёк/уже использован/неверный "
+            "redirect_uri); UNSUPPORTED_PROVIDER — недостижимо при валидном provider из пути",
+        },
+    },
+)
 async def oauth_login(
     provider: OAuthProvider,
     payload: OAuthLoginRequest,
@@ -35,4 +46,4 @@ async def oauth_login(
     )
 
     token = create_access_token(user.id)
-    return TokenResponse(access_token=token, user=UserOut.model_validate(user))
+    return TokenResponse(access_token=token, user=await user_repo.build_user_out(db, user))

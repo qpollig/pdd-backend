@@ -1,0 +1,81 @@
+# Справочник кодов ошибок API
+
+Все ошибки API возвращаются в формате `{"detail": "КОД_ОШИБКИ"}` (кроме 422 — это стандартная
+валидация FastAPI/Pydantic со своей структурой `{"detail": [...]}`, см. `HTTPValidationError`
+в Swagger). Самые частые коды продублированы прямо в Swagger в описании `responses` под каждым
+эндпоинтом — здесь полный список для справки.
+
+## Аутентификация (401) — применимо ко ВСЕМ защищённым эндпоинтам
+
+Любой эндпоинт с `security: [{"HTTPBearer": []}]` в Swagger может вернуть один из этих кодов,
+если JWT отсутствует / истёк / указывает на несуществующего пользователя. Не документируется
+отдельно под каждым эндпоинтом в Swagger, т.к. это общее поведение зависимости `get_current_user`.
+
+| Код | Когда |
+|---|---|
+| `NOT_AUTHENTICATED` | Заголовок `Authorization: Bearer <token>` вообще не передан |
+| `INVALID_TOKEN` | Токен просрочен, повреждён или подписан другим секретом |
+| `USER_NOT_FOUND` | Токен валиден, но пользователь с таким id удалён из БД |
+
+## `POST /api/v1/auth/oauth/{provider}`
+
+| Код | HTTP | Когда |
+|---|---|---|
+| `OAUTH_EXCHANGE_FAILED` | 400 | Провайдер (Yandex/VK) отклонил `code` — истёк, уже использован, неверный `redirect_uri` |
+| `UNSUPPORTED_PROVIDER` | 400 | Практически недостижимо — `provider` уже валидируется как enum на уровне пути |
+
+## `POST /api/v1/tickets/session/start`
+
+| Код | HTTP | Когда |
+|---|---|---|
+| `OUT_OF_LIVES` | 403 | У Free-пользователя `lives_current == 0` |
+| `NO_QUESTIONS_FOUND` | 404 | По `ticket_id`/`topic_id` нет вопросов, либо пусто в "Ошибках"/"Избранном" для этого режима |
+
+## `POST /api/v1/tickets/session/answer`
+
+| Код | HTTP | Когда |
+|---|---|---|
+| `SESSION_NOT_FOUND` | 404 | `session_id` не существует или принадлежит другому пользователю |
+| `QUESTION_NOT_IN_SESSION` | 404 | `question_id` не входит в состав этой сессии |
+| `QUESTION_NOT_FOUND` | 404 | Сам вопрос не найден (не должно происходить при валидных данных) |
+| `SESSION_ALREADY_FINISHED` | 409 | Сессия уже завершена — ответы больше не принимаются |
+| `QUESTION_ALREADY_ANSWERED` | 409 | На этот вопрос в этой сессии уже отвечали |
+| `INVALID_ANSWER` | 400 | `answer_id` не относится к переданному `question_id` |
+
+## `POST /api/v1/tickets/session/finish`
+
+| Код | HTTP | Когда |
+|---|---|---|
+| `SESSION_NOT_FOUND` | 404 | См. выше |
+| `SESSION_ALREADY_FINISHED` | 409 | Повторный вызов `/finish` для уже завершённой сессии |
+
+## `GET /api/v1/questions/{id}/image`
+
+| Код | HTTP | Когда |
+|---|---|---|
+| `IMAGE_NOT_FOUND` | 404 | У вопроса нет картинки, либо вопрос с таким id не существует |
+
+## `POST /api/v1/questions/{id}/favorite`
+
+| Код | HTTP | Когда |
+|---|---|---|
+| `QUESTION_NOT_FOUND` | 404 | Вопрос с таким id не существует |
+
+(У `DELETE .../favorite` намеренно нет 404 — удаление того, чего не было в избранном, тихо
+считается успехом: `is_favorite: false` в ответе в обоих случаях.)
+
+## `GET /api/v1/subscriptions/me` и `POST /api/v1/subscriptions/cancel`
+
+| Код | HTTP | Когда |
+|---|---|---|
+| `SUBSCRIPTION_NOT_FOUND` | 404 | Пользователь Free и никогда не покупал Premium — это ОЖИДАЕМОЕ состояние, не ошибка сервера |
+
+## `POST /api/v1/billing/webhook`
+
+Эти коды видит эквайринг (ЮKassa/Т-Банк), не фронтенд — но для полноты:
+
+| Код | HTTP | Когда |
+|---|---|---|
+| `MISSING_USER_ID_IN_METADATA` | 400 | В вебхуке нет `metadata.user_id` |
+| `INVALID_USER_ID` | 400 | `metadata.user_id` не парсится как UUID |
+| `USER_NOT_FOUND` | 404 | Пользователь с таким id не существует |

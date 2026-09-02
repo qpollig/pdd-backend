@@ -22,7 +22,7 @@ class TicketOut(BaseModel):
 
 
 class AnswerOut(BaseModel):
-    """is_correct заполняется только для режимов theory/errors — см. build_answer_out()."""
+    """is_correct заполняется только в режимах theory/errors/favorites — см. build_question_out()."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -40,7 +40,17 @@ class QuestionOut(BaseModel):
     text: str
     image_url: str | None  # относительный путь на наш эндпоинт /questions/{id}/image, не внешняя ссылка
     explanation: str | None
+    is_favorite: bool = False
     answers: list[AnswerOut]
+
+
+class FavoritesListResponse(BaseModel):
+    questions: list[QuestionOut]
+
+
+class FavoriteToggleResponse(BaseModel):
+    question_id: uuid.UUID
+    is_favorite: bool
 
 
 class TopicsListResponse(BaseModel):

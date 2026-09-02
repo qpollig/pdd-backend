@@ -10,8 +10,8 @@ from app.core.database import Base
 
 
 class TicketCategory(str, enum.Enum):
-    a_b = "A_B"  # легковые авто, мотоциклы
-    c_d = "C_D"  # грузовые авто, автобусы
+    A_B = "A_B"  # легковые авто, мотоциклы
+    C_D = "C_D"  # грузовые авто, автобусы
 
 
 class Topic(Base):
@@ -101,3 +101,22 @@ class UserError(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (UniqueConstraint("user_id", "question_id", name="uq_user_errors_user_question"),)
+
+
+class UserFavorite(Base):
+    """Вопросы, добавленные пользователем в 'Избранное' — курируется вручную, в отличие
+    от user_errors: верный ответ НЕ убирает вопрос из избранного, только явное действие
+    пользователя (POST/DELETE .../favorite)."""
+
+    __tablename__ = "user_favorites"
+
+    id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    question_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("questions.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("user_id", "question_id", name="uq_user_favorites_user_question"),)

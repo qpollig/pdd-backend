@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     OAUTH_REDIRECT_URI: str = "https://app.example.com/oauth/callback"
 
     # Gameplay / freemium
-    DEFAULT_LIVES_MAX: int = 5
+    DEFAULT_LIVES_MAX: int = 10
     LIVES_RESET_HOUR_UTC: int = 0  # 00:00 UTC daily reset
 
     # Exam rules (gibdd_exam mode)

@@ -16,6 +16,8 @@ class UserOut(BaseModel):
     lives_current: int
     lives_max: int
     is_premium: bool
+    errors_count: int = 0  # сколько вопросов сейчас в "Работе над ошибками" (user_errors)
+    favorites_count: int = 0  # сколько вопросов в "Избранном" (user_favorites)
 
 
 class OAuthLoginRequest(BaseModel):

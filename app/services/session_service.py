@@ -21,6 +21,10 @@ from app.schemas.session import (
     SessionStartResponse,
 )
 
+# Правильный ответ виден сразу в режимах повторения/самопроверки (Теория, Ошибки, Избранное).
+# В "Экзамене ГИБДД" — намеренно нет, чтобы исключить читинг (см. serializers.py).
+MODES_WITH_VISIBLE_ANSWER_IN_RESPONSE = (SessionMode.theory, SessionMode.errors, SessionMode.favorites)
+
 
 async def start_session(db: AsyncSession, user: User, req: SessionStartRequest) -> SessionStartResponse:
     ensure_can_start_session(user)
@@ -35,6 +39,8 @@ async def start_session(db: AsyncSession, user: User, req: SessionStartRequest) 
         questions = await content_repo.get_questions_by_ticket(db, req.ticket_id)
     elif req.mode == SessionMode.errors:
         questions = await content_repo.get_user_error_questions(db, user.id)
+    elif req.mode == SessionMode.favorites:
+        questions = await content_repo.get_user_favorite_questions(db, user.id)
     else:  # pragma: no cover - защищено enum'ом на уровне схемы
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="INVALID_MODE")
 
@@ -54,10 +60,14 @@ async def start_session(db: AsyncSession, user: User, req: SessionStartRequest) 
         db.add(SessionQuestion(session_id=session.id, question_id=q.id, order_index=idx, is_extra=False))
     await db.flush()
 
+    # Нужно в любом режиме — например, в "Теории" пользователь может увидеть звёздочку
+    # у вопроса, который уже добавил в избранное раньше.
+    favorite_ids = await content_repo.get_user_favorite_question_ids(db, user.id)
+
     return SessionStartResponse(
         session_id=session.id,
         mode=session.mode,
-        questions=[build_question_out(q, session.mode) for q in questions],
+        questions=[build_question_out(q, session.mode, favorite_question_ids=favorite_ids) for q in questions],
         lives_current=user.lives_current,
         lives_max=user.lives_max,
         is_premium=user.is_premium,
@@ -149,15 +159,19 @@ async def submit_answer(db: AsyncSession, user: User, req: SessionAnswerRequest)
                         )
                     )
                 session.extra_questions_added += len(extra_questions)
-                extra_questions_out = [build_question_out(q, session.mode) for q in extra_questions]
+                favorite_ids = await content_repo.get_user_favorite_question_ids(db, user.id)
+                extra_questions_out = [
+                    build_question_out(q, session.mode, favorite_question_ids=favorite_ids)
+                    for q in extra_questions
+                ]
 
     await db.flush()
 
     return SessionAnswerResponse(
-        is_correct=is_correct if session.mode in (SessionMode.theory, SessionMode.errors) else None,
+        is_correct=is_correct if session.mode in MODES_WITH_VISIBLE_ANSWER_IN_RESPONSE else None,
         correct_answer_id=(
             next((a.id for a in question.answers if a.is_correct), None)
-            if session.mode in (SessionMode.theory, SessionMode.errors)
+            if session.mode in MODES_WITH_VISIBLE_ANSWER_IN_RESPONSE
             else None
         ),
         lives_current=user.lives_current,

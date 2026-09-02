@@ -81,6 +81,21 @@ def guess_content_type(path: str) -> str:
     return CONTENT_TYPE_BY_EXT.get(Path(path).suffix.lower(), "application/octet-stream")
 
 
+def resolve_repo_image_path(image_field: str) -> str:
+    """
+    В части записей репозитория поле "image" указывает путь вида
+    './tmp/images/{category}/xxx.jpg'. Сегмент 'tmp/' — это остаток локальной структуры
+    папок, использовавшейся при генерации датасета автором репозитория, и не существует
+    в самом репозитории на GitHub. Реальные картинки лежат по 'images/{category}/xxx.jpg'.
+    В остальных записях (напр. './images/A_B/xxx.jpg') сегмента 'tmp/' нет вообще —
+    тогда просто убираем ведущий './'.
+    """
+    cleaned = image_field.lstrip("./")
+    if cleaned.startswith("tmp/"):
+        cleaned = cleaned[len("tmp/") :]
+    return cleaned
+
+
 def is_placeholder_image(image: str | None) -> bool:
     """no_image.jpg — заглушка репозитория, которую его README прямо просит добавить
     самостоятельно ('добавьте по вкусу') — то есть физически в репозитории её нет."""
@@ -175,7 +190,7 @@ async def download_images(client: httpx.AsyncClient, image_paths: set[str]) -> d
     async def worker(path: str) -> None:
         async with semaphore:
             try:
-                resp = await client.get(RAW_BASE + path.lstrip("./"), timeout=30.0)
+                resp = await client.get(RAW_BASE + path, timeout=30.0)
                 resp.raise_for_status()
                 async with lock:
                     cache[path] = (resp.content, guess_content_type(path))
@@ -204,9 +219,23 @@ async def reset_content_tables() -> None:
         await session.commit()
 
 
+async def has_existing_content() -> bool:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(text("SELECT EXISTS (SELECT 1 FROM topics LIMIT 1)"))
+        return bool(result.scalar())
+
+
 async def seed(categories: list[str], do_reset: bool, limit: int | None) -> None:
     if do_reset:
         await reset_content_tables()
+    elif await has_existing_content():
+        raise SystemExit(
+            "В БД уже есть контент (таблица topics не пуста) — похоже, импорт уже выполнялся раньше.\n"
+            "Повторный запуск без флага --reset неизбежно упрётся в конфликт уникальности по билетам.\n"
+            "Если хотите пересоздать контент с нуля, запустите:\n\n"
+            "    python -m scripts.seed_pdd_content --reset\n\n"
+            "(это ОЧИСТИТ существующие topics/tickets/questions/answers и связанные тестовые сессии)."
+        )
 
     all_questions: list[dict] = []
     async with httpx.AsyncClient(headers={"Accept": "application/vnd.github+json"}) as client:
@@ -216,11 +245,15 @@ async def seed(categories: list[str], do_reset: bool, limit: int | None) -> None
         if not all_questions:
             raise SystemExit("Ни одного вопроса не удалось распарсить — прерываю импорт.")
 
-        image_paths = {
-            q["image"]
-            for q in all_questions
-            if q.get("image") and not is_placeholder_image(q.get("image"))
-        }
+        # Нормализуем путь к картинке ОДИН раз здесь — дальше по коду (кэш скачивания,
+        # привязка к вопросу) везде используется уже очищенный путь.
+        for q in all_questions:
+            raw_image = q.get("image")
+            q["image"] = (
+                resolve_repo_image_path(raw_image) if raw_image and not is_placeholder_image(raw_image) else None
+            )
+
+        image_paths = {q["image"] for q in all_questions if q["image"]}
         image_cache = await download_images(client, image_paths)
 
     # --- Темы: общие для всех категорий, дедуп по названию, порядок — по первому появлению ---

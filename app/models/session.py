@@ -13,6 +13,7 @@ class SessionMode(str, enum.Enum):
     theory = "theory"
     gibdd_exam = "gibdd_exam"
     errors = "errors"
+    favorites = "favorites"
 
 
 class SessionStatus(str, enum.Enum):
