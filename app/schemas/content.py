@@ -39,6 +39,7 @@ class QuestionOut(BaseModel):
     order_index: int
     text: str
     image_url: str | None  # относительный путь на наш эндпоинт /questions/{id}/image, не внешняя ссылка
+    video_url: str | None  # прямая ссылка на CDN с 3D-видеоразбором вопроса (внешний ресурс)
     explanation: str | None
     is_favorite: bool = False
     answers: list[AnswerOut]

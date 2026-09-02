@@ -63,6 +63,11 @@ class Question(Base):
     image_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     image_content_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # напр. "image/jpeg"
 
+    # 3D-видеоразбор — ключевое УТП продукта (см. ТЗ, раздел 1.4.4): видео НЕ хранится в БД/на
+    # диске приложения, а лежит в отдельном Object Storage и раздаётся через CDN. Здесь хранится
+    # только полная ссылка на файл, полученная от внешнего хранилища при загрузке контента.
+    video_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+
     explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     ticket: Mapped["Ticket | None"] = relationship(back_populates="questions")

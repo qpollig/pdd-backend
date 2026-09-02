@@ -28,6 +28,7 @@ def build_question_out(
         order_index=question.order_index,
         text=question.text,
         image_url=image_url,
+        video_url=question.video_url,
         explanation=question.explanation,
         is_favorite=(question.id in favorite_question_ids) if favorite_question_ids is not None else False,
         answers=[
