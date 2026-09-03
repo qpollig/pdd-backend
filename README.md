@@ -66,10 +66,18 @@ alembic/       # миграции (0001_initial — полная схема Фа
   для `gibdd_exam` — расчёт `passed`.
 
 ### 4. Жизни (Freemium)
-Free: `lives_current = lives_max = 5` по умолчанию. Списание — только при неверном ответе.
-Ежесуточный сброс до 5 в 00:00 UTC — cron-джоба `app/workers/lives_reset.py` через APScheduler.
+Free: `lives_current = lives_max = 10` по умолчанию (ТЗ v1.5, раздел 4.7). Списание — только
+при неверном ответе. Лимит хранится в колонке `users.lives_max` (не в константе кода), чтобы
+менять его под акции без релиза; `DEFAULT_LIVES_MAX` — лишь дефолт для новых пользователей.
+Ежесуточный сброс до `lives_max` в 00:00 UTC — cron-джоба `app/workers/lives_reset.py` через
+APScheduler.
 При `lives_current == 0` и `is_premium == False` — `403 OUT_OF_LIVES` на старте новой сессии.
 Premium — не ограничены.
+
+> ТЗ v1.5 в разделе 4.7 описывает более точную модель восстановления («+1 жизнь через 24 ч
+> с момента, когда жизни опустились ниже максимума», поле `users.lives_regen_at`) и списание
+> жизней во всех режимах. В Фазе 1 реализован упрощённый вариант из плана MVP — ежесуточный
+> сброс и списание в режимах с жизнями. Уточнённая модель — доработка следующей итерации.
 
 ### 5. Подписки и биллинг
 - `POST /api/v1/billing/checkout/init` — инициализация оплаты 1 ₽ / 3 дня триала
@@ -84,6 +92,30 @@ Premium — не ограничены.
   `is_premium = False`, `status = cancelled`.
 - `POST /api/v1/subscriptions/cancel` — отключение `auto_renew`, Premium сохраняется до конца
   оплаченного периода.
+
+## Развёртывание на dev-сервере (чек-лист)
+
+1. **`.env` на сервере** (chmod 600, не в git):
+   - `ENVIRONMENT=dev` — при этом backend не стартует с дефолтным `JWT_SECRET_KEY`.
+   - `JWT_SECRET_KEY=` — реальный секрет: `python -c "import secrets; print(secrets.token_urlsafe(64))"`.
+   - `CORS_ALLOW_ORIGINS=` — домен(ы) фронтенда dev-сервера (или `*` на время интеграции).
+   - `OAUTH_REDIRECT_URI=` — реальный `redirect_uri` dev-домена.
+   - OAuth: либо задать `YANDEX_CLIENT_ID/SECRET` и `VK_CLIENT_ID/SECRET` из кабинетов
+     Yandex OAuth / VK ID (с тем же `redirect_uri`), либо на время выставить
+     `OAUTH_ALLOW_MOCK=true` — тогда вход работает без регистрации приложений
+     (детерминированный фейковый профиль по `code`). **`OAUTH_ALLOW_MOCK` не включать в prod.**
+2. `docker compose up -d --build` — миграции Alembic (включая `0005_lives_default_10`)
+   применяются автоматически командой контейнера `api`.
+3. **Наполнить БД контентом** (иначе `/api/v1/topics` пустой):
+   ```bash
+   docker compose exec api python -m scripts.seed_pdd_content
+   ```
+   Скрипт тянет билеты/вопросы/картинки из открытого репозитория по сети — серверу нужен
+   исходящий доступ в интернет (GitHub / raw.githubusercontent.com).
+
+Не блокирует dev, но обязательно до prod: проверка подписи вебхука эквайринга
+(`app/api/v1/endpoints/billing.py`, сейчас TODO) — без неё любой POST на `/billing/webhook`
+с валидным `metadata.user_id` выдаёт Premium.
 
 ## Наполнение контентом (темы/билеты/вопросы)
 

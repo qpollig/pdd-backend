@@ -1,7 +1,13 @@
 from functools import lru_cache
 
-from pydantic import PostgresDsn
+from pydantic import PostgresDsn, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# ENVIRONMENT-значения, при которых допустимы дефолт-заглушки секретов (локальная разработка,
+# тесты, CI). Всё остальное (dev, staging, production) считается «развёрнутым» окружением,
+# где заглушки запрещены.
+_LOCAL_ENVIRONMENTS = {"local", "test", "ci"}
+_PLACEHOLDER_JWT_SECRETS = {"", "CHANGE_ME_IN_PROD"}
 
 
 class Settings(BaseSettings):
@@ -14,6 +20,13 @@ class Settings(BaseSettings):
     API_V1_PREFIX: str = "/api/v1"
     ENVIRONMENT: str = "local"
     DEBUG: bool = True
+
+    # CORS — список источников фронтенда, которым браузер разрешит обращаться к API.
+    # Comma-separated ("https://app.dev.example.ru,https://admin.dev.example.ru") либо "*" для любого.
+    # На dev-сервере фронтенд ходит из браузера с другого домена — без этого все запросы
+    # блокируются CORS-ошибкой. Аутентификация у нас по Bearer-токену (не cookie), поэтому
+    # "*" безопасно сочетается с allow_credentials=False (см. app/main.py).
+    CORS_ALLOW_ORIGINS: str = "*"
 
     # Database
     DATABASE_URL: PostgresDsn = "postgresql+asyncpg://pdd:pdd@localhost:5432/pdd"
@@ -29,9 +42,16 @@ class Settings(BaseSettings):
     VK_CLIENT_ID: str = ""
     VK_CLIENT_SECRET: str = ""
     OAUTH_REDIRECT_URI: str = "https://app.example.com/oauth/callback"
+    # Dev-only: разрешает вход через OAuth без зарегистрированных приложений Yandex/VK.
+    # Когда True И у провайдера не заданы CLIENT_ID/SECRET — вместо реального обращения к
+    # oauth.yandex.ru / oauth.vk.com backend возвращает детерминированный фейковый профиль
+    # (по одному коду — один и тот же пользователь). Никогда не включать в production.
+    OAUTH_ALLOW_MOCK: bool = False
 
     # Gameplay / freemium
-    DEFAULT_LIVES_MAX: int = 5
+    # ТЗ v1.5, раздел 4.7: users.lives_current / lives_max = 10 по умолчанию. Лимит хранится
+    # ещё и в колонке users.lives_max (миграция 0005) — чтобы менять его под акции без релиза.
+    DEFAULT_LIVES_MAX: int = 10
     LIVES_RESET_HOUR_UTC: int = 0  # 00:00 UTC daily reset
 
     # Exam rules (gibdd_exam mode)
@@ -52,6 +72,28 @@ class Settings(BaseSettings):
     ACQUIRER_WEBHOOK_SECRET: str = ""
 
     BILLING_WORKER_INTERVAL_MINUTES: int = 60
+
+    @property
+    def cors_allow_origins(self) -> list[str]:
+        raw = self.CORS_ALLOW_ORIGINS.strip()
+        if not raw or raw == "*":
+            return ["*"]
+        return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+    @model_validator(mode="after")
+    def _forbid_placeholder_secrets_outside_local(self) -> "Settings":
+        """На развёрнутом окружении (не local/test/ci) дефолт-заглушка JWT_SECRET_KEY —
+        открытая дверь: с ней кто угодно подделает токен и войдёт под любым пользователем."""
+        if (
+            self.ENVIRONMENT.lower() not in _LOCAL_ENVIRONMENTS
+            and self.JWT_SECRET_KEY in _PLACEHOLDER_JWT_SECRETS
+        ):
+            raise ValueError(
+                f"JWT_SECRET_KEY не задан (ENVIRONMENT={self.ENVIRONMENT}). "
+                "Сгенерируйте секрет и пропишите в .env: "
+                'python -c "import secrets; print(secrets.token_urlsafe(64))"'
+            )
+        return self
 
 
 @lru_cache

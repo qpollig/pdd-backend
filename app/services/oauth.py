@@ -1,3 +1,4 @@
+import hashlib
 from dataclasses import dataclass
 
 import httpx
@@ -19,8 +20,38 @@ class OAuthError(Exception):
     pass
 
 
+_PROVIDER_CREDENTIALS = {
+    OAuthProvider.yandex: ("YANDEX_CLIENT_ID", "YANDEX_CLIENT_SECRET"),
+    OAuthProvider.vk: ("VK_CLIENT_ID", "VK_CLIENT_SECRET"),
+}
+
+
+def _provider_credentials_configured(provider: OAuthProvider) -> bool:
+    id_attr, secret_attr = _PROVIDER_CREDENTIALS.get(provider, (None, None))
+    if id_attr is None:
+        return False
+    return bool(getattr(settings, id_attr) and getattr(settings, secret_attr))
+
+
+def _mock_profile(provider: OAuthProvider, code: str) -> OAuthProfile:
+    """Детерминированная заглушка для dev-сервера без зарегистрированных OAuth-приложений.
+
+    Аналог mock-режима в acquiring.py. Включается только при settings.OAUTH_ALLOW_MOCK=true
+    И отсутствии CLIENT_ID/SECRET у провайдера. Один и тот же code -> один и тот же пользователь.
+    """
+    digest = hashlib.sha256(f"{provider.value}:{code}".encode()).hexdigest()[:12]
+    return OAuthProfile(
+        oauth_id=f"mock-{provider.value}-{digest}",
+        name=f"Dev {provider.value.upper()} {digest[:6]}",
+        email=f"dev-{digest}@mock.local",
+        avatar_url=None,
+    )
+
+
 async def exchange_code_and_fetch_profile(provider: OAuthProvider, code: str, redirect_uri: str) -> OAuthProfile:
     """Обменивает code провайдера на access_token и запрашивает профиль пользователя."""
+    if settings.OAUTH_ALLOW_MOCK and not _provider_credentials_configured(provider):
+        return _mock_profile(provider, code)
     if provider == OAuthProvider.yandex:
         return await _yandex_profile(code, redirect_uri)
     if provider == OAuthProvider.vk:

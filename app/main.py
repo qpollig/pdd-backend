@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.v1.router import api_router
@@ -27,6 +28,19 @@ app = FastAPI(
     title=settings.APP_NAME,
     version="1.0.0-mvp",
     lifespan=lifespan,
+)
+
+# CORS: фронтенд на dev-сервере обращается к API из браузера с другого домена.
+# allow_credentials=False — авторизация у нас по заголовку Authorization: Bearer <token>,
+# а не по cookie, поэтому wildcard-источник ("*") допустим и безопасен. Если позже
+# понадобятся cookie/withCredentials — задать конкретные домены в CORS_ALLOW_ORIGINS
+# и переключить allow_credentials=True (со "*" это несовместимо по спецификации CORS).
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_allow_origins,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
