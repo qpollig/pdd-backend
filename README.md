@@ -51,12 +51,25 @@ alembic/       # миграции (0001_initial — полная схема Фа
 запрос профиля, create-or-update `users`, выдача JWT.
 
 ### 2. Контент
-`GET /api/v1/topics` — список тем + 40 билетов. Поле `is_correct` в ответах на вопросы отдаётся
+`GET /api/v1/topics` — список тем + билеты. Поле `is_correct` в ответах на вопросы отдаётся
 только в режимах `theory` и `errors`; в `gibdd_exam` скрывается до `/finish`
 (см. `app/services/serializers.py::build_question_out`).
 
+- **Только категория «A, B».** Каталог, счётчики вопросов в темах и случайный билет «Экзамена
+  ГИБДД» ограничены категорией `A_B` — список `content_repo.ACTIVE_TICKET_CATEGORIES` (добавить
+  `C_D` туда → вернётся в выдачу, менять запросы не нужно). Сейчас `/topics` отдаёт 40 билетов A_B.
+- Каждый элемент `topics[]` содержит `questions_count` — число вопросов темы в разрезе активных
+  категорий (сумма по 26 темам ≈ 794 — «банк 800 вопросов»).
+- `GET /api/v1/questions/{id}/image` — **без Bearer-авторизации** (обычный `<img src>` не может
+  передать заголовок `Authorization`; доступ к вопросу уже проверен на уровне сессии, а картинка
+  не эксклюзивна). Ответ помечен `Cache-Control: immutable`. Переезд на CDN — только правка
+  формирования `image_url` в `serializers.py`, фронтенд не трогается.
+
 ### 3. Плеер / Test Sessions
-- `POST /api/v1/tickets/session/start` — старт сессии (`theory` / `gibdd_exam` / `errors`).
+- `POST /api/v1/tickets/session/start` — старт сессии (`theory` / `gibdd_exam` / `errors` /
+  `favorites`). Для `gibdd_exam` `ticket_id` **не обязателен**: если фронт его не передал,
+  backend сам берёт случайный билет активной категории (реальный экзамен — случайный билет
+  из 20 вопросов). `theory` по-прежнему требует `ticket_id` или `topic_id`.
 - `POST /api/v1/tickets/session/answer`:
   - неверный ответ → списание 1 жизни для Free (Premium не трогаем);
   - режим `errors`: верный ответ → запись удаляется из `user_errors`;
@@ -74,6 +87,10 @@ APScheduler.
 При `lives_current == 0` и `is_premium == False` — `403 OUT_OF_LIVES` на старте новой сессии.
 Premium — не ограничены.
 
+`GET /api/v1/users/me` отдаёт `lives_reset_at` (когда жизни сбрасывались в последний раз) и
+`lives_regen_at` (ближайшие 00:00 UTC — когда сбросятся снова; `null` для Premium) — чтобы
+фронт мог показать таймер восстановления в ЛК и на дашборде.
+
 > ТЗ v1.5 в разделе 4.7 описывает более точную модель восстановления («+1 жизнь через 24 ч
 > с момента, когда жизни опустились ниже максимума», поле `users.lives_regen_at`) и списание
 > жизней во всех режимах. В Фазе 1 реализован упрощённый вариант из плана MVP — ежесуточный
@@ -82,6 +99,14 @@ Premium — не ограничены.
 ### 5. Подписки и биллинг
 - `POST /api/v1/billing/checkout/init` — инициализация оплаты 1 ₽ / 3 дня триала
   (заготовка под ЮKassa API, `save_payment_method=true` для получения rebill-токена).
+- **Заглушка ЮKassa (пока нет `ACQUIRER_SHOP_ID`/`ACQUIRER_SECRET_KEY`).** `checkout/init`
+  возвращает `confirmation_url` на встроенную страницу
+  `GET /api/v1/billing/mock-pay/{payment_id}` (HTML, без авторизации, `include_in_schema=false`).
+  Кнопка «Оплатить» → `POST /api/v1/billing/mock-pay/{payment_id}/complete`: активирует триал
+  (как это сделал бы вебхук) и делает `303` redirect на `BILLING_RETURN_URL?checkout=success`.
+  Идемпотентно (повторный `complete` не плодит подписки). Абсолютный адрес страницы собирается
+  из `PUBLIC_API_BASE_URL`. Как только заданы реальные ключи эквайринга — заглушка отдаёт `404`,
+  `checkout/init` уходит на настоящий `api.yookassa.ru`.
 - `POST /api/v1/billing/webhook` — обработка вебхука эквайринга: сохраняет `rebill_id`,
   ставит `is_premium = True`, создаёт/обновляет `subscriptions` (триал 3 дня).
   **Важно:** перед продакшеном нужно добавить проверку подписи/источника вебхука

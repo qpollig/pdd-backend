@@ -15,9 +15,11 @@ class SessionStartRequest(BaseModel):
     def check_target(self) -> "SessionStartRequest":
         if self.mode in (SessionMode.theory,) and not self.ticket_id and not self.topic_id:
             raise ValueError("ticket_id или topic_id обязателен для режима theory")
-        if self.mode == SessionMode.gibdd_exam and not self.ticket_id:
-            raise ValueError("ticket_id обязателен для режима gibdd_exam")
-        # errors: ни ticket_id, ни topic_id не требуются — вопросы берутся из user_errors
+        # gibdd_exam: ticket_id не обязателен — если фронт его не передал, backend сам
+        #   выбирает случайный билет активной категории (реальный экзамен ГИБДД —
+        #   это случайный билет из 20 вопросов).
+        # errors / favorites: ни ticket_id, ни topic_id не требуются — вопросы берутся
+        #   из user_errors / user_favorites.
         return self
 
 

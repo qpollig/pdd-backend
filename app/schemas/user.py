@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
@@ -18,6 +19,9 @@ class UserOut(BaseModel):
     is_premium: bool
     errors_count: int = 0  # сколько вопросов сейчас в "Работе над ошибками" (user_errors)
     favorites_count: int = 0  # сколько вопросов в "Избранном" (user_favorites)
+    # Восстановление жизней: сейчас модель простая — ежесуточный сброс до lives_max в 00:00 UTC.
+    lives_reset_at: datetime | None = None  # когда жизни сбрасывались в последний раз (null — ещё ни разу)
+    lives_regen_at: datetime | None = None  # когда произойдёт следующий сброс (ближайшие 00:00 UTC)
 
 
 class OAuthLoginRequest(BaseModel):

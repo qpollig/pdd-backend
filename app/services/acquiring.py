@@ -37,8 +37,14 @@ async def init_trial_payment(user_id: uuid.UUID) -> tuple[str, str]:
 
     if not settings.ACQUIRER_SHOP_ID or not settings.ACQUIRER_SECRET_KEY:
         # Локальная разработка без реальных ключей эквайринга — возвращаем заглушку.
+        # confirmation_url ведёт на встроенную мок-страницу «ЮKassa» (эндпоинт billing.py),
+        # которая по кнопке помечает платёж успешным и возвращает браузер на BILLING_RETURN_URL —
+        # ровно тот redirect-флоу, что будет с реальным эквайрингом, только без списания денег.
         fake_payment_id = f"local-{idempotence_key}"
-        return fake_payment_id, f"https://pay.example.com/mock/{fake_payment_id}"
+        confirmation_url = (
+            f"{settings.PUBLIC_API_BASE_URL}{settings.API_V1_PREFIX}/billing/mock-pay/{fake_payment_id}"
+        )
+        return fake_payment_id, confirmation_url
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(

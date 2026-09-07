@@ -2,6 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -46,7 +47,14 @@ app.add_middleware(
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request, exc: RequestValidationError):
-    return JSONResponse(status_code=422, content={"detail": "VALIDATION_ERROR", "errors": exc.errors()})
+    # exc.errors() может содержать несериализуемые объекты в ctx (например, исходный
+    # ValueError, если его бросил валидатор Pydantic-модели). Без jsonable_encoder
+    # json.dumps внутри JSONResponse падает с TypeError -> 500 без CORS-заголовков,
+    # и браузер показывает это как «CORS policy: No 'Access-Control-Allow-Origin'».
+    return JSONResponse(
+        status_code=422,
+        content={"detail": "VALIDATION_ERROR", "errors": jsonable_encoder(exc.errors())},
+    )
 
 
 app.include_router(api_router, prefix=settings.API_V1_PREFIX)

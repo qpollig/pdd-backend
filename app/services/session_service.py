@@ -29,6 +29,10 @@ MODES_WITH_VISIBLE_ANSWER_IN_RESPONSE = (SessionMode.theory, SessionMode.errors,
 async def start_session(db: AsyncSession, user: User, req: SessionStartRequest) -> SessionStartResponse:
     ensure_can_start_session(user)
 
+    # Билет, к которому в итоге привязана сессия. Для «Экзамена ГИБДД» без явного ticket_id
+    # backend сам выбирает случайный билет активной категории (см. content_repo).
+    effective_ticket_id = req.ticket_id
+
     if req.mode == SessionMode.theory:
         questions = (
             await content_repo.get_questions_by_ticket(db, req.ticket_id)
@@ -36,7 +40,11 @@ async def start_session(db: AsyncSession, user: User, req: SessionStartRequest) 
             else await content_repo.get_questions_by_topic(db, req.topic_id)
         )
     elif req.mode == SessionMode.gibdd_exam:
-        questions = await content_repo.get_questions_by_ticket(db, req.ticket_id)
+        if effective_ticket_id is None:
+            effective_ticket_id = await content_repo.get_random_active_ticket_id(db)
+            if effective_ticket_id is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="NO_QUESTIONS_FOUND")
+        questions = await content_repo.get_questions_by_ticket(db, effective_ticket_id)
     elif req.mode == SessionMode.errors:
         questions = await content_repo.get_user_error_questions(db, user.id)
     elif req.mode == SessionMode.favorites:
@@ -50,7 +58,7 @@ async def start_session(db: AsyncSession, user: User, req: SessionStartRequest) 
     session = TestSession(
         user_id=user.id,
         mode=req.mode,
-        ticket_id=req.ticket_id,
+        ticket_id=effective_ticket_id,
         topic_id=req.topic_id,
     )
     db.add(session)

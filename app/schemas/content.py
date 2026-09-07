@@ -11,6 +11,7 @@ class TopicOut(BaseModel):
     id: uuid.UUID
     title: str
     order_index: int
+    questions_count: int = 0  # число вопросов в теме (только активные категории билетов)
 
 
 class TicketOut(BaseModel):

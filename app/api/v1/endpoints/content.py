@@ -17,7 +17,16 @@ async def get_topics(
 ) -> TopicsListResponse:
     topics = await content_repo.list_topics(db)
     tickets = await content_repo.list_tickets(db)
+    question_counts = await content_repo.get_topic_question_counts(db)
     return TopicsListResponse(
-        topics=[TopicOut.model_validate(t) for t in topics],
+        topics=[
+            TopicOut(
+                id=t.id,
+                title=t.title,
+                order_index=t.order_index,
+                questions_count=question_counts.get(t.id, 0),
+            )
+            for t in topics
+        ],
         tickets=[TicketOut.model_validate(t) for t in tickets],
     )

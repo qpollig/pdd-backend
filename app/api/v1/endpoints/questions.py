@@ -23,8 +23,12 @@ router = APIRouter(prefix="/questions", tags=["content"])
 async def get_question_image(
     question_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
 ) -> Response:
+    # Без Bearer-авторизации намеренно: картинка вопроса не является секретом (доступ к самому
+    # вопросу уже проверен на уровне сессии), а обычный <img src="..."> не может передать
+    # заголовок Authorization. Публичный URL к тому же ведёт себя так же, как будущая CDN-ссылка —
+    # чтобы переехать на CDN, достаточно поменять формирование image_url в serializers.py,
+    # фронтенд менять не придётся.
     question = await content_repo.get_question(db, question_id)
     if question is None or not question.image_data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="IMAGE_NOT_FOUND")

@@ -5,7 +5,12 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.content import Answer, Question, Ticket, Topic, UserError, UserFavorite
+from app.models.content import Answer, Question, Ticket, TicketCategory, Topic, UserError, UserFavorite
+
+# Фаза MVP работает только с билетами/вопросами категории «A, B» (легковые авто, мотоциклы).
+# Каталог, счётчики вопросов в темах и случайный билет «Экзамена ГИБДД» ограничены этим списком.
+# Чтобы вернуть категорию «C, D» в выдачу — достаточно добавить её сюда, менять запросы не нужно.
+ACTIVE_TICKET_CATEGORIES: tuple[TicketCategory, ...] = (TicketCategory.A_B,)
 
 
 async def list_topics(db: AsyncSession) -> list[Topic]:
@@ -14,8 +19,36 @@ async def list_topics(db: AsyncSession) -> list[Topic]:
 
 
 async def list_tickets(db: AsyncSession) -> list[Ticket]:
-    result = await db.execute(select(Ticket).order_by(Ticket.number))
+    result = await db.execute(
+        select(Ticket)
+        .where(Ticket.category.in_(ACTIVE_TICKET_CATEGORIES))
+        .order_by(Ticket.number)
+    )
     return list(result.scalars().all())
+
+
+async def get_topic_question_counts(db: AsyncSession) -> dict[uuid.UUID, int]:
+    """Сколько вопросов в каждой теме — в разрезе только активных категорий билетов
+    (см. ACTIVE_TICKET_CATEGORIES). Ключ — topic_id, значение — число вопросов."""
+    result = await db.execute(
+        select(Question.topic_id, func.count(Question.id))
+        .join(Ticket, Ticket.id == Question.ticket_id)
+        .where(Ticket.category.in_(ACTIVE_TICKET_CATEGORIES))
+        .group_by(Question.topic_id)
+    )
+    return {topic_id: count for topic_id, count in result.all()}
+
+
+async def get_random_active_ticket_id(db: AsyncSession) -> uuid.UUID | None:
+    """Случайный билет активной категории — для «Экзамена ГИБДД», когда фронт не передал
+    конкретный ticket_id (реальный экзамен ГИБДД — это случайный билет из 20 вопросов)."""
+    result = await db.execute(
+        select(Ticket.id)
+        .where(Ticket.category.in_(ACTIVE_TICKET_CATEGORIES))
+        .order_by(func.random())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
 
 
 async def get_questions_by_ticket(db: AsyncSession, ticket_id: uuid.UUID) -> list[Question]:
@@ -112,10 +145,16 @@ async def get_extra_exam_questions(
     exclude_question_ids: set[uuid.UUID],
     limit: int,
 ) -> list[Question]:
-    """Доп. вопросы из того же тематического блока, что и вопрос, на котором пользователь ошибся."""
+    """Доп. вопросы из того же тематического блока, что и вопрос, на котором пользователь ошибся.
+    Ограничено активными категориями билетов (см. ACTIVE_TICKET_CATEGORIES)."""
     result = await db.execute(
         select(Question)
-        .where(Question.topic_id == topic_id, Question.id.notin_(exclude_question_ids))
+        .join(Ticket, Ticket.id == Question.ticket_id)
+        .where(
+            Question.topic_id == topic_id,
+            Question.id.notin_(exclude_question_ids),
+            Ticket.category.in_(ACTIVE_TICKET_CATEGORIES),
+        )
         .options(selectinload(Question.answers))
         .order_by(Question.order_index)
         .limit(limit)

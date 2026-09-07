@@ -73,6 +73,13 @@ class Settings(BaseSettings):
 
     BILLING_WORKER_INTERVAL_MINUTES: int = 60
 
+    # Внешний адрес самого backend — нужен, чтобы собрать абсолютный confirmation_url для
+    # платёжной заглушки (см. acquiring.py). На проде — публичный домен API.
+    PUBLIC_API_BASE_URL: str = "http://localhost:8000"
+    # Куда заглушка ЮKassa возвращает браузер после «оплаты». На проде это делает реальный
+    # эквайринг по return_url; здесь — страница фронтенда, которая опросит статус подписки.
+    BILLING_RETURN_URL: str = "http://localhost:5173/profile"
+
     @property
     def cors_allow_origins(self) -> list[str]:
         raw = self.CORS_ALLOW_ORIGINS.strip()
