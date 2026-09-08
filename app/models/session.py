@@ -42,6 +42,9 @@ class TestSession(Base):
     errors_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     extra_questions_added: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     correct_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Явный вердикт «Экзамена ГИБДД». NULL — экзамен не завершён либо это не экзамен.
+    # Проставляется в submit_answer (форс-провал) и в finish_session.
+    exam_passed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -99,6 +99,11 @@ async def _get_session_or_404(db: AsyncSession, user: User, session_id: uuid.UUI
 async def submit_answer(db: AsyncSession, user: User, req: SessionAnswerRequest) -> SessionAnswerResponse:
     session = await _get_session_or_404(db, user, req.session_id)
 
+    # «Экзамен ГИБДД» уже завершён форсированно (2-я ошибка / ошибка в доп. вопросе) —
+    # ответы больше не принимаются, клиент должен вызвать /finish за итогом.
+    if session.mode == SessionMode.gibdd_exam and session.exam_passed is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="SESSION_ALREADY_FINISHED")
+
     item = next((i for i in session.items if i.question_id == req.question_id), None)
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="QUESTION_NOT_IN_SESSION")
@@ -144,9 +149,15 @@ async def submit_answer(db: AsyncSession, user: User, req: SessionAnswerRequest)
                 db.add(UserError(user_id=user.id, question_id=question.id))
 
         if session.mode == SessionMode.gibdd_exam:
-            if session.errors_count > settings.EXAM_MAX_ERRORS_ALLOWED:
+            if item.is_extra:
+                # ТЗ: в дополнительных вопросах ошибаться нельзя — любая ошибка здесь
+                # означает, что экзамен не сдан. Доп. вопросы больше не подмешиваем.
+                session_finished_forced = True
+                session.exam_passed = False
+            elif session.errors_count > settings.EXAM_MAX_ERRORS_ALLOWED:
                 # Превышен лимит ошибок — сессия автоматически завершается как непройденная
                 session_finished_forced = True
+                session.exam_passed = False
             elif session.extra_questions_added < settings.EXAM_MAX_EXTRA_QUESTIONS:
                 remaining_capacity = settings.EXAM_MAX_EXTRA_QUESTIONS - session.extra_questions_added
                 to_add = min(settings.EXAM_EXTRA_QUESTIONS_PER_ERROR, remaining_capacity)
@@ -195,12 +206,20 @@ async def finish_session(db: AsyncSession, user: User, session_id: uuid.UUID) ->
 
     session.status = SessionStatus.finished
     session.finished_at = datetime.now(timezone.utc)
-    await db.flush()
 
     total_questions = len(session.items)
     passed: bool | None = None
     if session.mode == SessionMode.gibdd_exam:
-        passed = session.errors_count <= settings.EXAM_MAX_ERRORS_ALLOWED
+        # Форсированный провал (ошибка в доп. вопросе / превышение лимита) уже записан в
+        # exam_passed=False в submit_answer — его и возвращаем; иначе считаем по числу ошибок.
+        passed = (
+            session.exam_passed
+            if session.exam_passed is not None
+            else session.errors_count <= settings.EXAM_MAX_ERRORS_ALLOWED
+        )
+        session.exam_passed = passed
+
+    await db.flush()
 
     return SessionFinishResponse(
         session_id=session.id,

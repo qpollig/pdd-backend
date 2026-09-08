@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.user import User
+from app.services.lives import apply_lives_regen
 from app.services.user_repo import get_user_by_id
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -47,4 +48,7 @@ async def get_current_user(
     user = await get_user_by_id(db, user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="USER_NOT_FOUND")
+    # ТЗ §4.7: ленивое восстановление жизней. Мутация фиксируется коммитом get_db по завершении
+    # запроса — отдельный await-flush не нужен.
+    apply_lives_regen(user)
     return user

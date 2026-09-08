@@ -52,7 +52,11 @@ class Settings(BaseSettings):
     # ТЗ v1.5, раздел 4.7: users.lives_current / lives_max = 10 по умолчанию. Лимит хранится
     # ещё и в колонке users.lives_max (миграция 0005) — чтобы менять его под акции без релиза.
     DEFAULT_LIVES_MAX: int = 10
-    LIVES_RESET_HOUR_UTC: int = 0  # 00:00 UTC daily reset
+    # ТЗ v1.5 §4.7: восстановление — «+1 жизнь через N часов с момента, когда жизни
+    # опустились ниже максимума». Начисление ленивое (при любом обращении к пользователю)
+    # + периодическая джоба-подстраховка (app/workers/lives_reset.py).
+    LIVES_REGEN_HOURS: int = 24
+    LIVES_RESET_HOUR_UTC: int = 0  # оставлено для совместимости; в модели §4.7 не используется
 
     # Exam rules (gibdd_exam mode)
     EXAM_BASE_QUESTIONS: int = 20  # тикет из 20 вопросов (стандарт ГИБДД)

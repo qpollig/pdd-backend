@@ -38,7 +38,7 @@
 | `SESSION_NOT_FOUND` | 404 | `session_id` не существует или принадлежит другому пользователю |
 | `QUESTION_NOT_IN_SESSION` | 404 | `question_id` не входит в состав этой сессии |
 | `QUESTION_NOT_FOUND` | 404 | Сам вопрос не найден (не должно происходить при валидных данных) |
-| `SESSION_ALREADY_FINISHED` | 409 | Сессия уже завершена — ответы больше не принимаются |
+| `SESSION_ALREADY_FINISHED` | 409 | Сессия уже завершена — ответы больше не принимаются. В `gibdd_exam` — в т.ч. после форс-завершения (ошибка в доп. вопросе / превышен лимит ошибок): клиент должен вызвать `/finish` за итогом |
 | `QUESTION_ALREADY_ANSWERED` | 409 | На этот вопрос в этой сессии уже отвечали |
 | `INVALID_ANSWER` | 400 | `answer_id` не относится к переданному `question_id` |
 
@@ -64,11 +64,16 @@
 (У `DELETE .../favorite` намеренно нет 404 — удаление того, чего не было в избранном, тихо
 считается успехом: `is_favorite: false` в ответе в обоих случаях.)
 
-## `GET /api/v1/subscriptions/me` и `POST /api/v1/subscriptions/cancel`
+## `GET /api/v1/subscriptions/me`
+
+Ошибок «нет подписки» не возвращает: для Free-пользователя без Premium отвечает `200` с телом
+`null` (ожидаемое состояние, а не ошибка — чтобы в консоли браузера не мигало «404»).
+
+## `POST /api/v1/subscriptions/cancel`
 
 | Код | HTTP | Когда |
 |---|---|---|
-| `SUBSCRIPTION_NOT_FOUND` | 404 | Пользователь Free и никогда не покупал Premium — это ОЖИДАЕМОЕ состояние, не ошибка сервера |
+| `SUBSCRIPTION_NOT_FOUND` | 404 | Пользователь Free и никогда не покупал Premium |
 
 ## `POST /api/v1/billing/webhook`
 

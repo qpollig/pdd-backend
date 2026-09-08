@@ -31,7 +31,10 @@ class User(Base):
     # Freemium gameplay state
     lives_current: Mapped[int] = mapped_column(Integer, nullable=False, default=settings.DEFAULT_LIVES_MAX)
     lives_max: Mapped[int] = mapped_column(Integer, nullable=False, default=settings.DEFAULT_LIVES_MAX)
+    # Когда жизни последний раз начислялись джобой/ленивым регеном (для наблюдаемости).
     lives_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # ТЗ §4.7: момент начисления следующей +1 жизни. NULL — жизни на максимуме, таймер не идёт.
+    lives_regen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Premium status (denormalized flag kept in sync with subscriptions)
     is_premium: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

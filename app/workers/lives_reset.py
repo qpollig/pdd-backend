@@ -1,23 +1,34 @@
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import update
+from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
 from app.models.user import User
+from app.services.lives import apply_lives_regen
 
 logger = logging.getLogger(__name__)
 
 
-async def reset_free_users_lives() -> None:
+async def regen_free_users_lives() -> None:
+    """Подстраховка к ленивому восстановлению жизней (ТЗ v1.5 §4.7).
+
+    Ленивый реген в get_current_user покрывает активных пользователей; эта джоба догоняет
+    тех, кто давно не заходил, чтобы `lives_current` в БД не «отставал» от реальной модели.
+    Идемпотентна: применяет ту же apply_lives_regen, что и запросы.
     """
-    Ежесуточный сброс жизней (00:00 UTC) до lives_max для всех пользователей.
-    Premium-пользователей не трогаем (у них lives не расходуются), но обновление
-    безопасно и для них — просто выравнивает lives_current = lives_max.
-    """
+    now = datetime.now(timezone.utc)
     async with AsyncSessionLocal() as session:
         result = await session.execute(
-            update(User).values(lives_current=User.lives_max, lives_reset_at=datetime.now(timezone.utc))
+            select(User).where(
+                User.is_premium.is_(False),
+                User.lives_current < User.lives_max,
+                User.lives_regen_at.is_not(None),
+                User.lives_regen_at <= now,
+            )
         )
+        users = list(result.scalars().all())
+        for user in users:
+            apply_lives_regen(user, now)
         await session.commit()
-        logger.info("Lives reset job completed, rows_matched=%s", result.rowcount)
+        logger.info("Lives regen job: %s user(s) topped up", len(users))

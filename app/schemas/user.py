@@ -19,9 +19,10 @@ class UserOut(BaseModel):
     is_premium: bool
     errors_count: int = 0  # сколько вопросов сейчас в "Работе над ошибками" (user_errors)
     favorites_count: int = 0  # сколько вопросов в "Избранном" (user_favorites)
-    # Восстановление жизней: сейчас модель простая — ежесуточный сброс до lives_max в 00:00 UTC.
-    lives_reset_at: datetime | None = None  # когда жизни сбрасывались в последний раз (null — ещё ни разу)
-    lives_regen_at: datetime | None = None  # когда произойдёт следующий сброс (ближайшие 00:00 UTC)
+    # Восстановление жизней по модели ТЗ v1.5 §4.7: «+1 жизнь через 24 ч с момента, когда
+    # жизни опустились ниже максимума».
+    lives_reset_at: datetime | None = None  # когда жизни последний раз начислялись (null — ещё ни разу)
+    lives_regen_at: datetime | None = None  # когда будет начислена следующая +1 жизнь (null — жизни на максимуме / Premium)
 
 
 class OAuthLoginRequest(BaseModel):
