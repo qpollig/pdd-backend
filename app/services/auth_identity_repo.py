@@ -85,7 +85,7 @@ async def consume_password_reset_token(db: AsyncSession, raw_token: str) -> Auth
 
 async def oauth_identity_for_user(db: AsyncSession, user_id: uuid.UUID) -> AuthIdentity | None:
     """Первая (по created_at) oauth-identity пользователя — для обратной совместимости
-    UserOut.oauth_provider. В Фазе 1 у пользователя не больше одной."""
+    UserOut.oauth_provider."""
     result = await db.execute(
         select(AuthIdentity)
         .where(
@@ -96,3 +96,55 @@ async def oauth_identity_for_user(db: AsyncSession, user_id: uuid.UUID) -> AuthI
         .limit(1)
     )
     return result.scalar_one_or_none()
+
+
+# ── Связывание способов входа ────────────────────────────────────────────────────────────────
+async def list_identities_for_user(db: AsyncSession, user_id: uuid.UUID) -> list[AuthIdentity]:
+    result = await db.execute(
+        select(AuthIdentity)
+        .where(AuthIdentity.user_id == user_id)
+        .order_by(AuthIdentity.created_at)
+        # populate_existing: только что созданная identity получает актуальный server-default
+        # created_at из БД, а не None из сессии.
+        .execution_options(populate_existing=True)
+    )
+    return list(result.scalars().all())
+
+
+async def password_identity_for_user(db: AsyncSession, user_id: uuid.UUID) -> AuthIdentity | None:
+    return await db.scalar(
+        select(AuthIdentity).where(
+            AuthIdentity.user_id == user_id, AuthIdentity.type == AuthIdentityType.password
+        )
+    )
+
+
+async def create_oauth_identity(
+    db: AsyncSession, user_id: uuid.UUID, identity_type: AuthIdentityType, oauth_id: str
+) -> AuthIdentity:
+    identity = AuthIdentity(
+        user_id=user_id,
+        type=identity_type,
+        identifier=oauth_id,
+        # OAuth-провайдер уже подтвердил владение почтой.
+        email_verified_at=datetime.now(timezone.utc),
+    )
+    db.add(identity)
+    await db.flush()
+    return identity
+
+
+async def create_password_identity(
+    db: AsyncSession, user_id: uuid.UUID, email: str, password_hash: str
+) -> AuthIdentity:
+    identity = AuthIdentity(
+        user_id=user_id,
+        type=AuthIdentityType.password,
+        identifier=normalize_email(email),
+        password_hash=password_hash,
+        # Фаза 1: верификация email опциональна (см. auth.py) — остаётся NULL.
+        email_verified_at=None,
+    )
+    db.add(identity)
+    await db.flush()
+    return identity

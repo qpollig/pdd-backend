@@ -54,6 +54,35 @@
 | `INVALID_OR_EXPIRED_TOKEN` | 400 | Токен неизвестен, истёк (TTL `PASSWORD_RESET_TOKEN_TTL_MINUTES`) или уже был использован (одноразовый) |
 | `VALIDATION_ERROR` | 422 | `new_password` < 8 или > 72 символов |
 
+## Связывание способов входа (`/api/v1/auth/identities*`) — все требуют `Authorization: Bearer`
+
+`GET /api/v1/auth/identities` — ошибок, кроме общих 401, не возвращает.
+
+### `POST /api/v1/auth/identities/oauth/{provider}`
+
+| Код | HTTP | Когда |
+|---|---|---|
+| `OAUTH_EXCHANGE_FAILED` | 400 | Провайдер отклонил `code` |
+| `IDENTITY_ALREADY_LINKED` | 409 | Этот аккаунт Yandex/VK уже привязан к ДРУГОМУ `users.id` — молча не перепривязываем |
+
+(Если тот же аккаунт провайдера уже привязан к ЭТОМУ же пользователю — `200`, идемпотентно, список identities без изменений.)
+
+### `POST /api/v1/auth/identities/password`
+
+| Код | HTTP | Когда |
+|---|---|---|
+| `PASSWORD_ALREADY_SET` | 409 | У текущего пользователя уже есть вход по паролю — нужна отдельная смена пароля, не эта ручка |
+| `EMAIL_ALREADY_REGISTERED` | 409 | Этот email уже занят входом по паролю у другого пользователя (та же проверка, что в `/auth/register`) |
+| `VALIDATION_ERROR` | 422 | Невалидный email / пароль < 8 или > 72 |
+
+### `DELETE /api/v1/auth/identities/{type}`
+
+| Код | HTTP | Когда |
+|---|---|---|
+| `CANNOT_UNLINK_LAST_IDENTITY` | 409 | Это единственный оставшийся способ входа — иначе аккаунт стал бы навсегда недоступен |
+| `IDENTITY_NOT_FOUND` | 404 | У пользователя нет привязанного способа входа этого типа |
+| `VALIDATION_ERROR` | 422 | `{type}` не входит в `password` \| `yandex` \| `vk` |
+
 ## `POST /api/v1/tickets/session/start`
 
 | Код | HTTP | Когда |

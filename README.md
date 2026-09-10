@@ -97,6 +97,24 @@ oauth-пользователей и убрала `users.oauth_provider/oauth_id`
 - `POST /api/v1/auth/password/reset` `{token, new_password}` → токен одноразовый (гасится сразу),
   явный `400 INVALID_OR_EXPIRED_TOKEN` при истёкшем/неверном/использованном.
 
+**Связывание способов входа** (все требуют `Authorization: Bearer`, отдают актуальный список
+`[{type, identifier, created_at}]`):
+- `GET  /api/v1/auth/identities` — список привязанных способов входа.
+- `POST /api/v1/auth/identities/oauth/{provider}` `{code}` — привязать Yandex/VK. `code` того же
+  аккаунта, что уже привязан к ЭТОМУ пользователю → `200` идемпотентно; привязан к ДРУГОМУ →
+  `409 IDENTITY_ALREADY_LINKED` (чужой аккаунт молча не перепривязывается).
+- `POST /api/v1/auth/identities/password` `{email, password}` — добавить вход по паролю
+  OAuth-аккаунту. `409 PASSWORD_ALREADY_SET` (пароль уже есть — нужна отдельная смена) /
+  `409 EMAIL_ALREADY_REGISTERED` (email занят).
+- `DELETE /api/v1/auth/identities/{type}` — отвязать. Последний оставшийся способ входа
+  отвязать нельзя → `409 CANNOT_UNLINK_LAST_IDENTITY`.
+
+> Связывание — **только явное действие залогиненного пользователя**. Автосвязывания по
+> совпадению email нет: email у password-пользователей не верифицирован (решение Фазы 1),
+> авто-merge открыл бы угон чужого OAuth-аккаунта через регистрацию пароля на его адрес.
+> Вход `/auth/oauth/{provider}` (без токена) не меняется — неизвестный `oauth_id` создаёт
+> нового пользователя, как раньше.
+
 Пароли: `passlib[bcrypt]` (`app/services/passwords.py`), длина 8–72 (72 — предел bcrypt).
 Коды ошибок — `docs/API_ERRORS.md`.
 

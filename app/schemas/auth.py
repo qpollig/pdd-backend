@@ -1,4 +1,8 @@
-from pydantic import BaseModel, EmailStr, Field
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+from app.models.auth_identity import AuthIdentityType
 
 # Пароль: минимум 8 (по ТЗ задачи), максимум 72 — предел bcrypt (байты сверх 72-го
 # игнорируются, тихая обрезка = дыра в безопасности, поэтому режем на входе).
@@ -30,3 +34,22 @@ class MessageResponse(BaseModel):
     (forgot/reset). detail — человекочитаемый текст, не код ошибки."""
 
     detail: str
+
+
+# ── Связывание способов входа (Фаза 1, продолжение) ──────────────────────────────────────────
+class LinkPasswordRequest(BaseModel):
+    """Добавить вход по паролю аккаунту, заведённому через OAuth."""
+
+    email: EmailStr
+    password: str = _PASSWORD
+
+
+class IdentityOut(BaseModel):
+    """Один привязанный способ входа. Ответ не публичный (только владельцу по Bearer),
+    поэтому identifier (email / oauth_id) отдаётся как есть, без маскирования."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    type: AuthIdentityType
+    identifier: str
+    created_at: datetime

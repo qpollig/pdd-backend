@@ -3,10 +3,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import create_access_token
-from app.models.user import OAuthProvider
+from app.core.security import create_access_token, get_current_user
+from app.models.auth_identity import AuthIdentityType
+from app.models.user import OAuthProvider, User
 from app.schemas.auth import (
     ForgotPasswordRequest,
+    IdentityOut,
+    LinkPasswordRequest,
     LoginRequest,
     MessageResponse,
     RegisterRequest,
@@ -180,3 +183,125 @@ async def reset_password(payload: ResetPasswordRequest, db: AsyncSession = Depen
     identity.password_hash = hash_password(payload.new_password)
     await db.flush()
     return MessageResponse(detail="Пароль изменён. Войдите с новым паролем.")
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# Связывание способов входа с аккаунтом (Фаза 1, продолжение).
+#
+# ВСЕ ручки ниже требуют валидный Bearer-токен: связывание — это ЯВНОЕ действие уже
+# залогиненного пользователя. Автосвязывания по совпадению email НЕТ и быть не должно —
+# email у password-пользователей в Фазе 1 не верифицирован, и авто-merge по email позволил бы
+# угнать чужой Yandex/VK-аккаунт, зарегистрировав на его адрес пароль.
+#
+# Вход через /auth/oauth/{provider} (без токена) не меняется: неизвестный oauth_id по-прежнему
+# создаёт нового пользователя. «Добавить ещё один способ входа к существующему аккаунту» — это
+# отдельный UI-шаг «Привязать» в залогиненном состоянии, который бьёт СЮДА.
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+async def _identities_out(db: AsyncSession, user: User) -> list[IdentityOut]:
+    rows = await auth_identity_repo.list_identities_for_user(db, user.id)
+    return [IdentityOut.model_validate(row) for row in rows]
+
+
+@router.get("/identities", response_model=list[IdentityOut])
+async def list_identities(
+    user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> list[IdentityOut]:
+    """Способы входа текущего пользователя."""
+    return await _identities_out(db, user)
+
+
+@router.post(
+    "/identities/oauth/{provider}",
+    response_model=list[IdentityOut],
+    responses={
+        400: {"model": ErrorDetail, "description": "OAUTH_EXCHANGE_FAILED — провайдер отклонил code"},
+        409: {
+            "model": ErrorDetail,
+            "description": "IDENTITY_ALREADY_LINKED — этот аккаунт провайдера уже привязан к ДРУГОМУ пользователю",
+        },
+    },
+)
+async def link_oauth_identity(
+    provider: OAuthProvider,
+    payload: OAuthLoginRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[IdentityOut]:
+    """Привязать Yandex/VK-вход к текущему аккаунту. Тело — как у /auth/oauth/{provider}."""
+    redirect_uri = payload.redirect_uri or settings.OAUTH_REDIRECT_URI
+    try:
+        profile = await exchange_code_and_fetch_profile(provider, payload.code, redirect_uri)
+    except OAuthError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OAUTH_EXCHANGE_FAILED") from exc
+
+    identity_type = AuthIdentityType(provider.value)
+    existing = await auth_identity_repo.get_identity(db, identity_type, profile.oauth_id)
+    if existing is not None:
+        if existing.user_id == user.id:
+            return await _identities_out(db, user)  # уже привязано к нам — идемпотентно
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="IDENTITY_ALREADY_LINKED")
+
+    await auth_identity_repo.create_oauth_identity(db, user.id, identity_type, profile.oauth_id)
+    return await _identities_out(db, user)
+
+
+@router.post(
+    "/identities/password",
+    response_model=list[IdentityOut],
+    responses={
+        409: {
+            "model": ErrorDetail,
+            "description": "PASSWORD_ALREADY_SET — у пользователя уже есть вход по паролю (нужна отдельная "
+            "смена пароля); EMAIL_ALREADY_REGISTERED — email занят другим пользователем",
+        },
+    },
+)
+async def link_password_identity(
+    payload: LinkPasswordRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[IdentityOut]:
+    """Добавить вход по паролю аккаунту, заведённому через OAuth."""
+    # Своё состояние проверяем первым: если пароль уже есть — это не «добавить», а «сменить»
+    # (отдельная задача), поэтому 409 даже если email в теле — тот же самый.
+    if await auth_identity_repo.password_identity_for_user(db, user.id) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="PASSWORD_ALREADY_SET")
+
+    email = auth_identity_repo.normalize_email(payload.email)
+    if await auth_identity_repo.get_password_identity_by_email(db, email) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="EMAIL_ALREADY_REGISTERED")
+
+    await auth_identity_repo.create_password_identity(db, user.id, email, hash_password(payload.password))
+    return await _identities_out(db, user)
+
+
+@router.delete(
+    "/identities/{identity_type}",
+    response_model=list[IdentityOut],
+    responses={
+        404: {"model": ErrorDetail, "description": "IDENTITY_NOT_FOUND — у пользователя нет способа входа этого типа"},
+        409: {
+            "model": ErrorDetail,
+            "description": "CANNOT_UNLINK_LAST_IDENTITY — нельзя убрать последний способ входа (аккаунт станет недоступен)",
+        },
+    },
+)
+async def unlink_identity(
+    identity_type: AuthIdentityType,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[IdentityOut]:
+    """Отвязать способ входа. Последний оставшийся отвязать нельзя."""
+    identities = await auth_identity_repo.list_identities_for_user(db, user.id)
+    to_remove = [i for i in identities if i.type == identity_type]
+    if not to_remove:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="IDENTITY_NOT_FOUND")
+    if len(to_remove) >= len(identities):  # после удаления не осталось бы ни одного
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="CANNOT_UNLINK_LAST_IDENTITY"
+        )
+
+    for identity in to_remove:
+        await db.delete(identity)
+    await db.flush()
+    return await _identities_out(db, user)
