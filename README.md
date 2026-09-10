@@ -47,8 +47,36 @@ alembic/       # миграции (0001_initial — полная схема Фа
 ## Реализованная логика (соответствие ТЗ)
 
 ### 1. Auth
-`POST /api/v1/auth/oauth/{provider}` (`yandex` | `vk`) — обмен `code` на токен провайдера,
-запрос профиля, create-or-update `users`, выдача JWT.
+
+Два способа входа, оба возвращают одинаковый `TokenResponse` (`access_token` + `UserOut`) —
+фронтенду не важно, каким способом вошли. Сам способ входа хранится в таблице **`auth_identities`**
+(одна строка = один способ), а не в колонках `users` — это подготовка к Фазе 2, где у одного
+пользователя их будет несколько (миграция `0007_email_password_auth` перенесла существующих
+oauth-пользователей и убрала `users.oauth_provider/oauth_id`).
+
+**OAuth (Yandex/VK)** — `POST /api/v1/auth/oauth/{provider}`: обмен `code` на токен провайдера,
+запрос профиля, create-or-update `users` + `auth_identities(type=provider)`, выдача JWT.
+Внешний контракт не менялся.
+
+**Email + пароль:**
+- `POST /api/v1/auth/register` `{email, password, name}` → создаёт `users` +
+  `auth_identities(type='password')`, сразу возвращает рабочий токен.
+  **Решение Фазы 1: верификация email опциональна** — `email_verified_at` остаётся `NULL`,
+  auto-login не блокируется (обоснование — в комментарии `app/api/v1/endpoints/auth.py`;
+  на dev-сервере SMTP заглушечный, обязательный gate сделал бы register→login нерабочим).
+  Полноценный verify-флоу — Фаза 2.
+- `POST /api/v1/auth/login` `{email, password}` → таймсейф-проверка bcrypt-хеша; единый
+  `401 INVALID_CREDENTIALS` и при неверном пароле, и при несуществующем email. Rate limit —
+  5 попыток / 15 мин на пару email+IP (in-memory, см. `app/services/rate_limit.py`).
+- `POST /api/v1/auth/password/forgot` `{email}` → **всегда `200`** с одинаковым телом
+  (нельзя перебором узнать зарегистрированные email). Генерирует одноразовый токен (TTL 45 мин),
+  в БД кладёт только его sha256-хеш, шлёт письмо со ссылкой. Отдельный rate limit: 3/час на
+  email + 10/час на IP.
+- `POST /api/v1/auth/password/reset` `{token, new_password}` → токен одноразовый (гасится сразу),
+  явный `400 INVALID_OR_EXPIRED_TOKEN` при истёкшем/неверном/использованном.
+
+Пароли: `passlib[bcrypt]` (`app/services/passwords.py`), длина 8–72 (72 — предел bcrypt).
+Коды ошибок — `docs/API_ERRORS.md`.
 
 ### 2. Контент
 `GET /api/v1/topics` — список тем + билеты. Поле `is_correct` в ответах на вопросы отдаётся
@@ -147,7 +175,15 @@ Premium — не ограничены.
      Yandex OAuth / VK ID (с тем же `redirect_uri`), либо на время выставить
      `OAUTH_ALLOW_MOCK=true` — тогда вход работает без регистрации приложений
      (детерминированный фейковый профиль по `code`). **`OAUTH_ALLOW_MOCK` не включать в prod.**
-2. `docker compose up -d --build` — миграции Alembic (включая `0005_lives_default_10`)
+   - **SMTP (сброс пароля)**: если `SMTP_HOST` пуст — письма только пишутся в лог backend'а
+     (заглушка, как `OAUTH_ALLOW_MOCK`). **Перед продакшеном обязателен реальный SMTP-провайдер
+     с настроенными SPF/DKIM/DMARC для домена `SMTP_FROM`** — иначе письма сброса пароля уйдут
+     в спам или будут отклонены. Также задать `FRONTEND_PASSWORD_RESET_URL` на реальную
+     страницу фронтенда.
+   - Rate limit входа/сброса пароля — **in-memory, на один процесс** (`app/services/rate_limit.py`):
+     при нескольких uvicorn-воркерах у каждого свой счётчик, при рестарте счётчики обнуляются.
+     Для prod под нагрузкой — вынести в Redis (ключи те же).
+2. `docker compose up -d --build` — миграции Alembic (включая `0007_email_password_auth`)
    применяются автоматически командой контейнера `api`.
 3. **Наполнить БД контентом** (иначе `/api/v1/topics` пустой):
    ```bash
@@ -170,6 +206,12 @@ Premium — не ограничены.
 
 Промокоды, реферальная программа, просмотр рекламы за жизни, стрики/огонёчки,
 "Марафон 800 вопросов", "Экзамен Автошколы" — таблицы и поля под эти фичи не создавались.
+
+**Auth — отложено в Фазу 2:** обязательная верификация email (эндпоинт `POST /auth/email/verify`
++ gate на `email_verified_at`), связывание нескольких способов входа с одним аккаунтом
+(`POST /auth/link/...`). Таблица `auth_identities` и колонка `email_verified_at` уже рассчитаны
+на «несколько identity у одного пользователя», API-контракт `TokenResponse` от способа входа
+не зависит.
 
 ## Известные точки для доработки перед продакшеном
 

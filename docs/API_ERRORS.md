@@ -24,6 +24,36 @@
 | `OAUTH_EXCHANGE_FAILED` | 400 | Провайдер (Yandex/VK) отклонил `code` — истёк, уже использован, неверный `redirect_uri` |
 | `UNSUPPORTED_PROVIDER` | 400 | Практически недостижимо — `provider` уже валидируется как enum на уровне пути |
 
+## `POST /api/v1/auth/register`
+
+| Код | HTTP | Когда |
+|---|---|---|
+| `EMAIL_ALREADY_REGISTERED` | 409 | Этот email уже привязан к входу по паролю (`auth_identities.type='password'`). Сравнение регистронезависимое |
+| `VALIDATION_ERROR` | 422 | Невалидный email, пароль < 8 или > 72 символов, пустое имя |
+
+## `POST /api/v1/auth/login`
+
+| Код | HTTP | Когда |
+|---|---|---|
+| `INVALID_CREDENTIALS` | 401 | Неверный пароль **или** несуществующий email — намеренно один код, чтобы не раскрывать, какой из двух |
+| `RATE_LIMITED` | 429 | Больше `LOGIN_RATE_MAX_ATTEMPTS` (5) попыток за `LOGIN_RATE_WINDOW_MINUTES` (15) на пару email+IP |
+
+## `POST /api/v1/auth/password/forgot`
+
+Всегда `200` с одинаковым нейтральным телом (`{"detail": "Если такой email зарегистрирован…"}`)
+— по ответу нельзя определить, существует ли email. Единственное исключение:
+
+| Код | HTTP | Когда |
+|---|---|---|
+| `RATE_LIMITED` | 429 | Больше `PASSWORD_FORGOT_RATE_MAX_PER_EMAIL` (3) запросов на один email или `…_PER_IP` (10) с одного IP за `…_WINDOW_MINUTES` (60). 429 не зависит от существования email, поэтому не раскрывает его |
+
+## `POST /api/v1/auth/password/reset`
+
+| Код | HTTP | Когда |
+|---|---|---|
+| `INVALID_OR_EXPIRED_TOKEN` | 400 | Токен неизвестен, истёк (TTL `PASSWORD_RESET_TOKEN_TTL_MINUTES`) или уже был использован (одноразовый) |
+| `VALIDATION_ERROR` | 422 | `new_password` < 8 или > 72 символов |
+
 ## `POST /api/v1/tickets/session/start`
 
 | Код | HTTP | Когда |

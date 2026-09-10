@@ -84,6 +84,27 @@ class Settings(BaseSettings):
     # эквайринг по return_url; здесь — страница фронтенда, которая опросит статус подписки.
     BILLING_RETURN_URL: str = "http://localhost:5173/profile"
 
+    # Email+password auth
+    # SMTP. Если SMTP_HOST пуст — письма НЕ отправляются, а печатаются в лог backend'а
+    # (тот же паттерн заглушки, что OAUTH_ALLOW_MOCK и mock-эквайринг). На проде — реальный
+    # SMTP-провайдер с настроенными SPF/DKIM, иначе письма уйдут в спам (см. README).
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = "PDD Test Platform <no-reply@localhost>"
+    SMTP_STARTTLS: bool = True
+    # Ссылка сброса пароля в письме: {FRONTEND_PASSWORD_RESET_URL}?token=<...>
+    FRONTEND_PASSWORD_RESET_URL: str = "http://localhost:5173/reset-password"
+    PASSWORD_RESET_TOKEN_TTL_MINUTES: int = 45  # 30–60 мин по ТЗ задачи
+
+    # Rate limiting (in-memory, per-process — для MVP; на проде/несколько воркеров → Redis).
+    LOGIN_RATE_MAX_ATTEMPTS: int = 5
+    LOGIN_RATE_WINDOW_MINUTES: int = 15
+    PASSWORD_FORGOT_RATE_MAX_PER_EMAIL: int = 3
+    PASSWORD_FORGOT_RATE_MAX_PER_IP: int = 10
+    PASSWORD_FORGOT_RATE_WINDOW_MINUTES: int = 60
+
     @property
     def cors_allow_origins(self) -> list[str]:
         raw = self.CORS_ALLOW_ORIGINS.strip()

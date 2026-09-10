@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, Integer, String, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, Integer, String, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -11,18 +11,22 @@ from app.core.database import Base
 
 
 class OAuthProvider(str, enum.Enum):
+    """Провайдеры OAuth. Значения совпадают с соответствующими членами AuthIdentityType —
+    сам способ входа теперь хранится в таблице auth_identities, а этот enum остаётся для
+    валидации path-параметра /auth/oauth/{provider}."""
+
     yandex = "yandex"
     vk = "vk"
 
 
 class User(Base):
+    """Профиль пользователя. Способы входа (password / yandex / vk) вынесены в auth_identities
+    (миграция 0007) — с прицелом на Фазу 2, где у одного пользователя их будет несколько.
+    users.email остаётся как профильное поле (не идентификатор входа)."""
+
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-
-    # OAuth identity
-    oauth_provider: Mapped[OAuthProvider] = mapped_column(Enum(OAuthProvider, name="oauth_provider"), nullable=False)
-    oauth_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
@@ -43,5 +47,3 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
-
-    __table_args__ = (UniqueConstraint("oauth_provider", "oauth_id", name="uq_users_provider_oauth_id"),)

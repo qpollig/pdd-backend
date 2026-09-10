@@ -10,7 +10,9 @@ class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    oauth_provider: OAuthProvider
+    # Способ входа вынесен в auth_identities (миграция 0007). Поле оставлено для обратной
+    # совместимости фронтенда: для oauth-пользователей — их провайдер, для входа по паролю — null.
+    oauth_provider: OAuthProvider | None = None
     name: str | None
     avatar_url: str | None
     email: str | None
