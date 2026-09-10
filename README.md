@@ -42,7 +42,29 @@ app/
   services/    # бизнес-логика (репозитории, плеер, жизни, биллинг, OAuth, эквайринг)
   workers/     # фоновые джобы + APScheduler wiring
 alembic/       # миграции (0001_initial — полная схема Фазы 1)
+tests/         # pytest (см. «Тесты»)
 ```
+
+## Тесты
+
+```bash
+pip install -r requirements-dev.txt      # pytest, pytest-asyncio (в prod-образ НЕ идут)
+
+# нужен запущенный Postgres (docker compose up db). Прогон:
+pytest                                   # с хоста; DATABASE_URL берётся из .env
+# либо внутри контейнера (надёжнее, если порт 5432 капризит на Windows):
+docker compose exec api sh -c "cd /app && pip install -r requirements-dev.txt && pytest"
+```
+
+- Тесты работают в **отдельной БД** `<dbname>_test` (создаётся/удаляется автоматически на том
+  же Postgres-сервере), дев-БД с реальными пользователями не трогают. Имя можно переопределить
+  через `TEST_DATABASE_NAME`. Роль БД должна иметь право `CREATEDB` (у `pdd` в docker-compose есть).
+- Схема поднимается один раз за сессию (`Base.metadata.create_all`), каждый тест — во вложенной
+  транзакции с откатом: повторный прогон подряд без ручной очистки тоже зелёный.
+- Покрыта Фаза 1 email+password (register / login / password forgot+reset) и адаптированный под
+  `auth_identities` OAuth-флоу. Что осознанно не покрыто — см. `tests/` (docstrings) и сводку в PR.
+- **CI (GitHub Actions) — отдельная задача на будущее**, сейчас не настроен: нужен job, который
+  поднимает `postgres:15` как service-контейнер и гоняет `pytest` на каждый push/PR.
 
 ## Реализованная логика (соответствие ТЗ)
 
